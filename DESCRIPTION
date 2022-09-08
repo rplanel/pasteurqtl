@@ -1,0 +1,12 @@
+Package: pasteurqtl
+Type: Package
+Title: Helper functions for the transformation of CC data
+Version: 1.0
+Date: 2019-01-25
+Author: Vincent Guillemot and Pascal Campagne
+Maintainer: Pascal Campagne <pascal.campagne@pasteur.fr>
+Description: Functions that are useful for QTL analysis of 
+  genotypes of collaborative cross data.
+VignetteBuilder: utils, knitr
+License: MIT
+RoxygenNote: 6.1.1

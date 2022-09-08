@@ -1,0 +1,100 @@
+---
+title: "Example"
+output:
+       rmarkdown::html_vignette:
+           default: false
+           toc: false
+           number_sections: true
+           fig_caption: true
+vignette: >
+  %\VignetteIndexEntry{Example}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}{inputenc}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+library(pasteurqtl)
+library(gdata)
+```
+
+Se mettre dans le dossier de travail.
+
+
+```{r wd}
+setwd("/home/pascal/mnt/ccqtl/analysis")
+```
+
+
+# 1. Obtenir des fichiers de génotypes (fondateurs et individus) avec des locus identiques
+
+```{r}
+genetic_data<-homogeneize_gen(file_founder = "../data/MegaMUGA26.csv", file_individuals = "../data/MRCAgenotypes.csv")
+```
+
+# 2. Lire les tableaux de croisement et générer des codes aléatoires lorsque l'info est manquante
+
+```{r}
+funnel_codes <- get_f_codes(file_f_codes = "../data/funnel_codes.csv")
+```
+
+# 3. Lire le fichier de phénotype
+
+```{r}
+pheno_tmp <- read.xls("../data/Zika/Zika.viremia.data_31strains.xlsx", sheet = 2, stringsAsFactors = FALSE)
+colnames(pheno_tmp)[1] <- "Line"
+```
+
+
+# 4. Obtenir des fichiers de phénotype, croisement et génotypes avec une correspondance ligne à ligne
+
+```{r}
+matched_data<-match_r2r(geno =genetic_data$gen_ind, pheno = pheno_tmp, fun_codes=funnel_codes)
+```
+
+
+# 5. Construction des fichiers sur la base des données présentes (identifiant unique)
+
+```{r}
+pheno_ag <- data.frame(id = make.unique(matched_data$PHENO$Line), matched_data$PHENO[, "decr"])
+geno_ag_KC <- matched_data$GENO
+geno_ag <- data.frame(id = make.unique(matched_data$PHENO$Line), matched_data$GENO)
+geno_founders_KC<-as.matrix(genetic_data$gen_founders)
+```
+
+
+# 6. Casser les données : attention !
+
+```{r}
+geno_ag_KC<-format_genotypes(geno_ag_KC)
+geno_ag_KC_df <- data.frame(id = make.unique(matched_data$PHENO$Line), geno_ag_KC)
+
+geno_founders_KC<-format_genotypes(geno_founders_KC)
+
+index_founders<-c(2,3,1,5,6,4,7,8)
+geno_founders_KC_df <- data.frame(id = rownames(genetic_data$gen_founders)[index_founders,], geno_founders_KC[index_founders,])
+```
+
+
+# Tableau de croisement
+
+```{r}
+l.codes<-strsplit(as.vector(matched_data$CROSS$Funnel_Code),split=NULL)
+L2N<-function(x){match(x,LETTERS)}
+cross_info<-data.frame(id=make.unique(matched_data$PHENO$Line),matrix(unlist(lapply(l.codes,L2N)), ncol = 8, byrow = TRUE))
+```
+
+
+
+## Sauvegarde des fichiers
+
+```{r}
+write.csv(geno_ag_KC_df, file = "../data/CFU_Liver/geno_ag_kc.csv", row.names = FALSE, quote=F)
+write.csv(geno_founders_KC_df, file = "../data/CFU_Liver/geno_founders_kc.csv", row.names = FALSE, quote=F)
+write.csv(geno_ag, file = "../data/CFU_Liver/geno_ag.csv", row.names = FALSE, quote=F)
+write.csv(map_ag, file = "../data/CFU_Liver/map_ag.csv", row.names = FALSE, quote=F)
+write.csv(pheno_ag, file = "../data/CFU_Liver/pheno_ag.csv", row.names = FALSE, quote=F)
+write.csv(cross_info, file = "../data/CFU_Liver/cross_info.csv", row.names = FALSE, quote=F)
+```
+
+

@@ -1,0 +1,227 @@
+---
+title: "Untitled"
+author: "Your Name"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    fig_caption: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+# library(pasteurqtl)
+library(gdata)
+library(ggplot2)
+library(qtl2)
+library(knitrProgressBar)
+library(ggbeeswarm)
+```
+
+## Step 1: read the data structure
+
+Read the data from the folder created with the shiny app. 
+
+```{r read_nknb_spleen}
+crossdata <- read_cross2("out.yaml")
+```
+
+## Step 2: compute the genetic probabilities
+
+```{r genoprob, cache=TRUE}
+pr <- calc_genoprob(crossdata, crossdata$gmap, error_prob = 0.002)
+apr <- genoprob_to_alleleprob(pr)
+```
+
+## Step 3: compute the kinship matrices
+
+```{r kinship, cache=TRUE}
+kinship <- calc_kinship(pr, use_allele_probs=FALSE)
+kinship_loco <- calc_kinship(pr, "loco")
+```
+
+## Step 4: genome scan
+
+```{r spleen_scan, cache=TRUE}
+out <- scan1(genoprobs = pr, pheno = crossdata$pheno, kinship = kinship)
+par(mar = c(5.1, 4.1, 1.1, 1.1))
+ymx <- maxlod(out) # overall maximum LOD score
+plot(out, crossdata$pmap, lodcolumn=1, col="slateblue", ylim=c(0, ymx*1.02), bgcolor = "gray85", altbgcolor = "white", hlines_col = "gray70", vlines_col = "gray70")
+# legend("topright", lwd=2, col=c("slateblue", "violetred"), colnames(out), bg="gray90")
+```
+
+## Step 6: permutations
+
+```{r permutation, cache=TRUE}
+nrep <- 100
+lod_perm <- numeric(nrep)
+
+pb <- progress_estimated(nrep)
+
+for (j in 1:nrep) {
+  update_progress(pb)
+  i <- sample(1:nrow(pr[[1]]))
+  pr_perm <- lapply(pr, function(A) {
+    B <- A[i, , ]
+    dimnames(B) <- dimnames(A)
+    return(B)
+  })
+  
+  attributes(pr_perm) <- attributes(pr)
+  class(pr_perm) <- class(pr)
+  
+  kinship_perm <- calc_kinship(pr_perm, use_allele_probs = FALSE)
+  
+  out_perm <-
+    scan1(pr_perm, crossdata$pheno, kinship = kinship_perm) # genome scan using linear mixed models
+  
+  lod_perm[j] <- max(out_perm)
+  # print(max(out_perm))
+}
+
+# summary(lod_perm)
+
+
+# show sifgnificance thresholds on plot
+Q <- quantile(lod_perm, c(0.9, 0.95, 0.99))
+par(mar = c(5.1, 4.1, 1.1, 1.1))
+ymx <- max(maxlod(out), Q) # overall maximum LOD score
+plot(out, crossdata$pmap, lodcolumn = 1, col = "slateblue", ylim = c(0, ymx * 1.02)) +
+  abline(Q[1], 0, col = "orange", lty = "dotted") +
+  abline(Q[2], 0, col = "red", lty = "dashed") +
+  abline(Q[3], 0, col = "darkred")
+Q
+
+peaks <- find_peaks(out, crossdata$pmap, threshold = Q[2], drop = 1.5)
+knitr::kable(peaks)
+```
+
+
+## Step 7: coefficients
+
+```{r coefficients}
+# Set chromosome here and threshold for cleaning
+CHR <- "13"
+thresh <- 0.1
+# Clean the probability matrix
+clean_apr <- apr[,CHR]
+clean_apr[[CHR]][clean_apr[[CHR]] <= thresh] <- 0
+clean_apr[[CHR]][clean_apr[[CHR]] >= (1-thresh)] <- 1
+# Caution : missing lines at a given position will lead to inconsistant coefficients
+c2eff <- scan1coef(clean_apr, crossdata$pheno, kinship_loco[[CHR]], zerosum = FALSE)
+mini <- min(crossdata$pheno)
+maxi <- max(crossdata$pheno)
+for (i in 1:ncol(c2eff)) {
+  c2eff[c2eff[,i] < mini | c2eff[,i] > maxi, i] <- NA # Quick fix : needs to be replaced with a real fix
+}
+par(mar=c(4.1, 4.1, 1.1, 2.6), las=1)
+col <- c("slateblue", "violetred", "green3", 
+         "black", "red", "blue", "pink", "orange")
+plot_coefCC(c2eff, crossdata$pmap[CHR], columns=1:8, scan1_output = out, bgcolor = "white", hlines_col = "gray70", vlines_col = "gray70")
+```
+
+## Step 8: haplotype (is this the correct name for that?)
+
+
+```{r haplo}
+# Change CHR here if necessary + select position + select phenotype
+CHR <- "13"
+POS <- 87.5
+whichpheno <- 1
+
+g <- maxmarg(pr, crossdata$pmap, chr=CHR, pos=POS, return_char=TRUE)
+dat.hap <- data.frame(Phenotype = crossdata$pheno[, whichpheno], 
+                      Haplotype = g[rownames(crossdata$pheno)],
+                      Line = gsub("\\.[0-9]+$", "", rownames(crossdata$pheno)))
+
+# ggplot(dat.hap, aes(Haplotype, Phenotype, color = Haplotype)) + geom_boxplot() + geom_beeswarm() + theme_bw() + scale_color_manual(values = col <- c(AA = "slateblue", BB = "violetred", CC = "green3", DD = "black", EE = "red", FF = "blue", GG = "pink", HH = "orange"))
+
+ggplot(dat.hap, aes(reorder(Line, Haplotype, FUN = function(x) x[1]), Phenotype, color = Haplotype)) + geom_boxplot() + geom_beeswarm() + theme_bw() + scale_color_manual(values = col <- c(AA = "slateblue", BB = "violetred", CC = "green3", DD = "black", EE = "red", FF = "blue", GG = "pink", HH = "orange")) + coord_flip()
+
+```
+
+
+## Step 9: annotate
+
+This step is under development.
+
+
+```{r gene_query}
+
+download.file("https://ndownloader.figshare.com/files/9746452", "mouse_genes_mgi.sqlite")
+
+query_genes <- create_gene_query_func("mouse_genes_mgi.sqlite")
+
+genes_in_interval <- query_genes(peaks$chr[1], peaks$ci_lo[1], peaks$ci_hi[1])
+
+knitr::kable(genes_in_interval[c("chr", "start", "stop", "ID", "Name")])
+
+# use scale_pos=1 because database is in Mbp and we want the gene plot at the same scale (in Mbp)
+plot_genes(genes_in_interval, scale_pos=1)
+```
+
+
+## Step 10: find most relevant snps
+
+
+```{r snp_associations}
+#download.file("https://ndownloader.figshare.com/files/9746485", "cc_variants.sqlite") # diwnload the database if needed
+query_variants <- create_variant_query_func("cc_variants.sqlite") # create a function to query snps of interest from the cc_variants database
+
+chromosome = 13 # enter the chromosome number
+peak <- max(out, crossdata$pmap)$pos
+width_p <- 20 # witdth of the window to be analysed around the LOD peak
+
+pr <- calc_genoprob(crossdata, crossdata$gmap, error_prob = 0.002)
+out_snps <- scan1snps(pr, crossdata$pmap, crossdata$pheno, kinship_loco[[paste(chromosome)]], query_func=query_variants, chr=chromosome, start=peak-width_p/2, end=peak+width_p/2, keep_all_snps=TRUE)
+```
+
+```{r plot_snp_association}
+par(mar=c(4.1, 4.1, 0.6, 0.6))
+plot_snpasso(out_snps$lod, out_snps$snpinfo)
+```
+
+
+# Step 10b: visually refine the interval of interest (display LOD scores of snps as well as gene annotations)
+
+```{r}
+chromosome = 13
+int_start = 87 # start (Mbp) of the refined interval
+int_end = 90 # end (Lbp) of the refined interval
+
+
+genes_in_interval <- query_genes(peaks$chr[1], int_start, int_end)
+
+out_snps2 <- scan1snps(pr, crossdata$pmap, crossdata$pheno, kinship_loco[[paste(chromosome)]], query_func=query_variants, chr=chromosome, start=int_start, end=int_end, keep_all_snps=TRUE)
+
+plot(out_snps2$lod, out_snps2$snpinfo, drop_hilit = 0.5, genes=genes_in_interval)
+```
+
+# Step 10c: plot the effect of a particular snp
+
+```{r}
+v = 1 # Plot the v-th top snp
+
+
+f_g <- paste0(LETTERS[1:8], LETTERS[1:8])
+ind_top <- sort(top_snps(out_snps$lod, out_snps$snpinfo)$lod, index.return = T, decreasing = T)$ix
+best_snps <- top_snps(out_snps$lod, out_snps$snpinfo)[ind_top,]
+
+g <- maxmarg(pr, crossdata$pmap, chr=best_snps$chr[v], pos=best_snps$pos[v], return_char=TRUE)
+
+m_snp <- g[rownames(crossdata$pheno)]
+m_snp <- replace(g[rownames(crossdata$pheno)], g[rownames(crossdata$pheno)] %in% f_g[best_snps[v, 8:15] == 1], "A")
+m_snp <- replace(m_snp, g[rownames(crossdata$pheno)] %in% f_g[top_snps(out_snps$lod, out_snps$snpinfo)[v, 8:15] != 1], "B")
+
+
+
+dat.snp <- data.frame(phenotype = crossdata$pheno[,1], genotype = m_snp, strains = substr(rownames(crossdata$pheno),1,5))
+
+ggplot(data = dat.snp, aes(x = genotype, y = phenotype, colour = genotype)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, height = 0) +
+  ggtitle(paste("SNP -", best_snps$snp_id[2]))
+
+
+```
