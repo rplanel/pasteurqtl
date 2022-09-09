@@ -10,3 +10,6 @@ Description: Functions that are useful for QTL analysis of
 VignetteBuilder: utils, knitr
 License: MIT
 RoxygenNote: 6.1.1
+Imports:
+  qtl2,
+  devtools
